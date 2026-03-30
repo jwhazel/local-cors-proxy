@@ -23,7 +23,7 @@ In either case, you can override the default port by passing in your own at the 
 The server has 2 parameters:
 
 - `url={string}` - the url you want to proxy
-- `json={boolean}` - (optional) will force the response to be in JSON format. For the rare occasion when you're dealing with a site that returns JSON, but doesn't bother to set the proper `content-type` header.
+- `contentType={string}` - (optional) will override the response to be in whatever format you want without altering the body. This is for really weird edge cases where you're dealing with old/inept servers that might be serving up something like JSON or XML, but return it as `Content-Type: text/plain`
 
 ## HTTP Verb
 
@@ -35,12 +35,12 @@ The server transparently passes all headers to the destination. Useful for authe
 
 ## Examples
 
-http://localhost:1234/?q=https://baconipsum.com/api/?type=meat-and-filler
+http://localhost:1234/?url=https://baconipsum.com/api/?type=meat-and-filler
 
-http://localhost:1234/?q=https://google.com
+http://localhost:1234/?url=https://google.com
 
-http://localhost:1234/?q=https://google.com&json=true
+http://localhost:1234/?url=https://google.com&contentType=application/json
 
 ## Security
 
-Note that this disables TLS certificate validation on all proxied requests. It's done intentionally for local development. You would never use something like this in production.
+Note that this disables TLS certificate validation on all proxied requests. It's done intentionally for local development. You would never use something like this for production.

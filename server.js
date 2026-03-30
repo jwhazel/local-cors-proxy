@@ -24,7 +24,7 @@ const server = http.createServer((req, res) => {
 
   const reqUrl = new URL(req.url, `http://localhost:${PORT}`);
   const targetUrl = reqUrl.searchParams.get('url') || '';
-  const forceJson = reqUrl.searchParams.get('json') || 'false';
+  const contentTypeOverride = reqUrl.searchParams.get('contentType') || '';
 
   if (!targetUrl) {
     res.writeHead(400, { ...CORS_HEADERS, 'Content-Type': 'text/plain' });
@@ -40,8 +40,6 @@ const server = http.createServer((req, res) => {
     res.end('Invalid target URL');
     return;
   }
-
-  const forceJsonFlag = forceJson.toLowerCase() === 'true';
 
   // Forward headers but drop host so the target sees its own hostname
   const forwardHeaders = Object.assign({}, req.headers);
@@ -65,9 +63,7 @@ const server = http.createServer((req, res) => {
     proxyRes.on('data', (chunk) => chunks.push(chunk));
     proxyRes.on('end', () => {
       const body = Buffer.concat(chunks);
-      const upstreamContentType = proxyRes.headers['content-type'] || 'text/plain';
-      const isJSON = forceJsonFlag || upstreamContentType.includes('json');
-      const contentType = isJSON ? 'application/json' : upstreamContentType;
+      const contentType = contentTypeOverride || proxyRes.headers['content-type'] || 'text/plain';
 
       res.writeHead(proxyRes.statusCode, {
         ...CORS_HEADERS,
