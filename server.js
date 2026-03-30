@@ -1,44 +1,93 @@
-const app = require("express")();
-const cors = require("cors");
-const axios = require("axios");
-const https = require("https");
-const port = 1234;
+#!/usr/bin/env node
+import http from 'node:http';
+import https from 'node:https';
+import { URL } from 'node:url';
 
-//Enable cors
-app.use(cors());
+const PORT = process.env.PORT || 1234;
 
-app.all("/", function (req, res, next) {
-  //Accept 2 query params: q and json
-  let q = req.query.q || "";
-  let json = req.query.json || "false";
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+  'Access-Control-Allow-Headers': '*',
+};
 
-  //Coerce to JSON header if it looks like the request is JSON
-  let isJSON = q.toLowerCase().includes("json") || json.toLowerCase() == "true";
+// Allow self-signed/invalid certs on proxied https targets
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-  // Fix an issue with localhost and certs
-  const agent = new https.Agent({
-    rejectUnauthorized: false,
+const server = http.createServer((req, res) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS_HEADERS);
+    res.end();
+    return;
+  }
+
+  const reqUrl = new URL(req.url, `http://localhost:${PORT}`);
+  const targetUrl = reqUrl.searchParams.get('url') || '';
+  const forceJson = reqUrl.searchParams.get('json') || 'false';
+
+  if (!targetUrl) {
+    res.writeHead(400, { ...CORS_HEADERS, 'Content-Type': 'text/plain' });
+    res.end('Missing "url" query parameter');
+    return;
+  }
+
+  let parsedTarget;
+  try {
+    parsedTarget = new URL(targetUrl);
+  } catch {
+    res.writeHead(400, { ...CORS_HEADERS, 'Content-Type': 'text/plain' });
+    res.end('Invalid target URL');
+    return;
+  }
+
+  const forceJsonFlag = forceJson.toLowerCase() === 'true';
+
+  // Forward headers but drop host so the target sees its own hostname
+  const forwardHeaders = Object.assign({}, req.headers);
+  delete forwardHeaders['host'];
+  delete forwardHeaders['accept-encoding'];
+
+  const isHttps = parsedTarget.protocol === 'https:';
+  const options = {
+    hostname: parsedTarget.hostname,
+    port: parsedTarget.port || (isHttps ? 443 : 80),
+    path: parsedTarget.pathname + parsedTarget.search,
+    method: req.method,
+    headers: forwardHeaders,
+    agent: isHttps ? httpsAgent : undefined,
+  };
+
+  const transport = isHttps ? https : http;
+
+  const proxyReq = transport.request(options, (proxyRes) => {
+    const chunks = [];
+    proxyRes.on('data', (chunk) => chunks.push(chunk));
+    proxyRes.on('end', () => {
+      const body = Buffer.concat(chunks);
+      const upstreamContentType = proxyRes.headers['content-type'] || 'text/plain';
+      const isJSON = forceJsonFlag || upstreamContentType.includes('json');
+      const contentType = isJSON ? 'application/json' : upstreamContentType;
+
+      res.writeHead(proxyRes.statusCode, {
+        ...CORS_HEADERS,
+        'Content-Type': contentType,
+      });
+      res.end(body);
+    });
   });
 
-  //Request the resource and send the response back
-  axios(q, {
-    method: req.method,
-    headers: req.headers,
-    httpsAgent: agent,
-  })
-    .then((data) => {
-      if (isJSON) {
-        res.json(data.data);
-      } else {
-        res.send(data.data);
-      }
-    })
-    .catch((e) => {
-      console.log(e);
-      res.status(500).send(e.message);
-    });
+  proxyReq.setTimeout(25000, () => proxyReq.destroy());
+
+  proxyReq.on('error', (err) => {
+    console.error(err);
+    res.writeHead(500, { ...CORS_HEADERS, 'Content-Type': 'text/plain' });
+    res.end(err.message);
+  });
+
+  req.pipe(proxyReq);
 });
 
-app.listen(port, function () {
-  console.log(`CORS-enabled web server listening on port ${port}`);
+server.listen(PORT, () => {
+  console.log(`CORS-enabled web server listening on port ${PORT}`);
 });
